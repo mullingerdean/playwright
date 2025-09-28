@@ -1,0 +1,64 @@
+# Node dependencies
+node_modules/
+
+# Build outputs and packaged artifacts
+dist/
+build/
+out/
+release/
+
+# Logs and runtime files
+*.log
+npm-debug.log*
+yarn-debug.log*
+yarn-error.log*
+*.pid
+*.seed
+*.tgz
+*.tmp
+
+# OS-generated files
+.DS_Store
+Thumbs.db
+desktop.ini
+ehthumbs.db
+
+# Editor directories and settings
+.vscode/
+.idea/
+*.code-workspace
+.history/
+
+# Electron cache/state
+*.asar
+*.asar.unpacked
+.cache/
+.electron-cache/
+.electron/
+tmp/
+temp/
+
+# Coverage and test artifacts
+coverage/
+.nyc_output/
+lcov-report/
+
+# Playwright artifacts
+playwright-report/
+blob-report/
+test-results/
+.playwright/
+
+# Environment files
+.env
+.env.*
+!.env.example
+
+# Package manager stores
+pnpm-lock.yaml
+*.tsbuildinfo
+
+# Miscellaneous
+*.swp
+*.swo
+*.orig

@@ -1,0 +1,5 @@
+Work Item Type,Title,Test Step,Step Action,Step Expected,Area Path,Iteration Path
+Test Case,Login Test,,,,Automation\Hydra,
+,Login Test,1,Open login page,Page loads,Automation\Hydra,
+,Login Test,2,Enter username,Username accepted,Automation\Hydra,
+,Login Test,3,Enter password,Password accepted,Automation\Hydra,

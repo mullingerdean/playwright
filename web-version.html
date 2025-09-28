@@ -1,0 +1,1022 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Playwright to Azure DevOps Converter</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <style>
+        #drop-zone {
+            transition: all 0.2s ease-in-out;
+        }
+        #drop-zone.drag-over {
+            background-color: #e0f2fe;
+            border-color: #0284c7;
+            transform: scale(1.02);
+        }
+        .progress-bar {
+            transition: width 0.3s ease;
+        }
+        .fade-in {
+            animation: fadeIn 0.3s ease-in;
+        }
+        @keyframes fadeIn {
+            from { opacity: 0; transform: translateY(10px); }
+            to { opacity: 1; transform: translateY(0); }
+        }
+    </style>
+</head>
+<body class="bg-gradient-to-br from-slate-50 to-blue-50 min-h-screen font-sans">
+    <div class="container mx-auto p-6 max-w-6xl">
+        <!-- Header -->
+        <header class="text-center mb-8">
+            <h1 class="text-4xl font-bold text-slate-900 mb-2">Playwright Test Converter</h1>
+            <p class="text-slate-600 text-lg">Transform Playwright test files into Azure DevOps test case CSV files</p>
+            <div class="mt-4 flex justify-center gap-4 text-sm text-slate-500">
+                <span class="bg-slate-100 px-3 py-1 rounded-full">✨ Web-Based</span>
+                <span class="bg-slate-100 px-3 py-1 rounded-full">🔒 Client-Side Processing</span>
+                <span class="bg-slate-100 px-3 py-1 rounded-full">📊 Instant Download</span>
+            </div>
+        </header>
+
+        <!-- Main Content -->
+        <main>
+            <!-- Drop Zone -->
+            <div id="drop-zone" class="bg-white border-4 border-dashed border-slate-300 rounded-xl p-8 md:p-12 text-center shadow-lg hover:shadow-xl">
+                <div class="flex flex-col items-center justify-center space-y-4">
+                    <div class="w-20 h-20 bg-blue-100 rounded-full flex items-center justify-center">
+                        <svg class="w-10 h-10 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                            <path stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M7 16a4 4 0 01-.88-7.903A5 5 0 1115.9 6L16 6a5 5 0 011 9.9M9 19l3 3m0 0l3-3m-3 3V10"/>
+                        </svg>
+                    </div>
+                    <div>
+                        <h3 class="text-xl font-semibold text-slate-800 mb-2">Drop Your Playwright Project Folder Here</h3>
+                        <p class="text-slate-500 mb-4">Supports entire project folders with API modules, flows, tests, and utilities</p>
+                        <input type="file" id="file-input" multiple accept=".js,.ts,.mjs" webkitdirectory class="hidden">
+                        <button id="browse-button" class="bg-blue-600 hover:bg-blue-700 text-white px-6 py-2 rounded-lg font-medium transition-colors">
+                            Select Project Folder
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Progress and Status -->
+            <div id="progress-container" class="mt-8 hidden">
+                <div class="bg-white rounded-lg p-6 shadow-lg">
+                    <div class="flex items-center justify-between mb-4">
+                        <h3 class="text-lg font-semibold text-slate-800">Processing Files...</h3>
+                        <span id="progress-text" class="text-sm text-slate-600">0%</span>
+                    </div>
+                    <div class="w-full bg-slate-200 rounded-full h-2">
+                        <div id="progress-bar" class="bg-blue-600 h-2 rounded-full progress-bar" style="width: 0%"></div>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Results Panel -->
+            <div id="results" class="mt-8 hidden">
+                <div class="bg-white rounded-lg p-6 shadow-lg">
+                    <h3 class="text-lg font-semibold text-slate-800 mb-4">Processing Results</h3>
+                    <div id="results-content"></div>
+                    <div class="mt-6 flex gap-4">
+                        <button id="download-csv" class="bg-green-600 hover:bg-green-700 text-white px-6 py-2 rounded-lg font-medium transition-colors">
+                            📥 Download CSV
+                        </button>
+                        <button id="process-more" class="bg-gray-600 hover:bg-gray-700 text-white px-6 py-2 rounded-lg font-medium transition-colors">
+                            🔄 Process More Files
+                        </button>
+                    </div>
+                </div>
+            </div>
+
+            <!-- Status Messages -->
+            <div id="status" class="mt-6 text-center min-h-[50px] flex items-center justify-center">
+                <p class="text-slate-500">Ready to process your Playwright tests</p>
+            </div>
+        </main>
+    </div>
+
+    <script>
+        // Global storage for parsed results
+        let currentParseResults = null;
+
+        // UI Elements
+        const dropZone = document.getElementById('drop-zone');
+        const fileInput = document.getElementById('file-input');
+        const browseButton = document.getElementById('browse-button');
+        const statusDiv = document.getElementById('status');
+        const progressContainer = document.getElementById('progress-container');
+        const progressBar = document.getElementById('progress-bar');
+        const progressText = document.getElementById('progress-text');
+        const results = document.getElementById('results');
+        const resultsContent = document.getElementById('results-content');
+        const downloadCsvButton = document.getElementById('download-csv');
+        const processMoreButton = document.getElementById('process-more');
+
+        // Event Listeners
+        browseButton.addEventListener('click', () => {
+            fileInput.click();
+        });
+
+        fileInput.addEventListener('change', handleFileSelection);
+
+        downloadCsvButton.addEventListener('click', downloadCSV);
+        
+        processMoreButton.addEventListener('click', () => {
+            results.classList.add('hidden');
+            progressContainer.classList.add('hidden');
+            updateStatus('Ready to process your Playwright tests', 'info');
+        });
+
+        // Drag and drop handlers
+        ['dragenter', 'dragover', 'dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, preventDefaults, false);
+        });
+
+        ['dragenter', 'dragover'].forEach(eventName => {
+            dropZone.addEventListener(eventName, highlight, false);
+        });
+
+        ['dragleave', 'drop'].forEach(eventName => {
+            dropZone.addEventListener(eventName, unhighlight, false);
+        });
+
+        dropZone.addEventListener('drop', handleDrop, false);
+
+        function preventDefaults(e) {
+            e.preventDefault();
+            e.stopPropagation();
+        }
+
+        function highlight() {
+            dropZone.classList.add('drag-over');
+        }
+
+        function unhighlight() {
+            dropZone.classList.remove('drag-over');
+        }
+
+        async function handleDrop(e) {
+            const files = Array.from(e.dataTransfer.files);
+            await processFiles(files);
+        }
+
+        async function handleFileSelection(e) {
+            const files = Array.from(e.target.files);
+            await processFiles(files);
+        }
+
+        async function processFiles(files) {
+            if (files.length === 0) {
+                updateStatus('No files selected.', 'warning');
+                return;
+            }
+
+            try {
+                updateStatus('Analyzing project structure and relationships...', 'info');
+                showProgress();
+
+                // Categorize files by type and structure
+                const projectStructure = categorizeProjectFiles(files);
+                
+                updateProgress(20);
+                updateStatus(`Found ${projectStructure.testFiles.length} test files, ${projectStructure.apiFiles.length} API modules, ${projectStructure.flowFiles.length} flow files...`, 'info');
+
+                // Parse relationships between files
+                const relationships = await analyzeFileRelationships(projectStructure);
+                
+                updateProgress(40);
+                updateStatus('Analyzing file dependencies and imports...', 'info');
+
+                // Parse test files with context
+                const parseResults = await parseTestFilesWithContext(projectStructure, relationships);
+
+                updateProgress(80);
+
+                if (parseResults.testCases.length === 0) {
+                    updateStatus('No valid test cases could be parsed from the files.', 'warning');
+                    hideProgress();
+                    return;
+                }
+
+                updateStatus(`${parseResults.testCases.length} test cases parsed successfully with ${parseResults.relationships} relationships found!`, 'success');
+                updateProgress(100);
+
+                currentParseResults = parseResults;
+                displayResults(parseResults);
+
+            } catch (error) {
+                console.error('Processing error:', error);
+                updateStatus(`Processing failed: ${error.message}`, 'error');
+                hideProgress();
+            }
+        }
+
+        function categorizeProjectFiles(files) {
+            const structure = {
+                testFiles: [],
+                apiFiles: [],
+                flowFiles: [],
+                utilityFiles: [],
+                configFiles: [],
+                otherFiles: []
+            };
+
+            for (const file of files) {
+                const extension = file.name.split('.').pop()?.toLowerCase();
+                if (!['js', 'ts', 'mjs', 'json', 'yaml', 'yml'].includes(extension)) continue;
+                
+                if (file.size > 5 * 1024 * 1024) { // 5MB limit
+                    console.warn(`File ${file.name} is too large (${file.size} bytes), skipping`);
+                    continue;
+                }
+
+                const filePath = file.webkitRelativePath || file.name;
+                const fileName = file.name.toLowerCase();
+
+                // Categorize based on path and name patterns
+                if (filePath.includes('/tests/') || fileName.includes('.spec.') || fileName.includes('.test.')) {
+                    structure.testFiles.push({ file, filePath, type: 'test' });
+                } else if (filePath.includes('/api/') || fileName.includes('api')) {
+                    structure.apiFiles.push({ file, filePath, type: 'api' });
+                } else if (filePath.includes('/flows/') || fileName.includes('flow')) {
+                    structure.flowFiles.push({ file, filePath, type: 'flow' });
+                } else if (filePath.includes('/helpers/') || filePath.includes('/utils/') || fileName.includes('helper') || fileName.includes('util')) {
+                    structure.utilityFiles.push({ file, filePath, type: 'utility' });
+                } else if (fileName.includes('config') || fileName.includes('package.json') || fileName.includes('.env')) {
+                    structure.configFiles.push({ file, filePath, type: 'config' });
+                } else {
+                    structure.otherFiles.push({ file, filePath, type: 'other' });
+                }
+            }
+
+            return structure;
+        }
+
+        async function analyzeFileRelationships(projectStructure) {
+            const relationships = {
+                imports: new Map(),
+                exports: new Map(),
+                dependencies: new Map()
+            };
+
+            // Analyze all files for imports and exports
+            const allFiles = [
+                ...projectStructure.testFiles,
+                ...projectStructure.apiFiles,
+                ...projectStructure.flowFiles,
+                ...projectStructure.utilityFiles
+            ];
+
+            for (const fileInfo of allFiles) {
+                try {
+                    const content = await readFileAsync(fileInfo.file);
+                    const fileRelations = analyzeFileContent(content, fileInfo.filePath);
+                    
+                    relationships.imports.set(fileInfo.filePath, fileRelations.imports);
+                    relationships.exports.set(fileInfo.filePath, fileRelations.exports);
+                    relationships.dependencies.set(fileInfo.filePath, fileRelations.dependencies);
+                } catch (error) {
+                    console.warn(`Error analyzing ${fileInfo.filePath}:`, error);
+                }
+            }
+
+            return relationships;
+        }
+
+        function analyzeFileContent(content, filePath) {
+            const imports = [];
+            const exports = [];
+            const dependencies = [];
+
+            // Find import statements
+            const importPatterns = [
+                /import\s+.*?\s+from\s+['"`]([^'"`]+)['"`]/g,
+                /import\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g,
+                /require\s*\(\s*['"`]([^'"`]+)['"`]\s*\)/g
+            ];
+
+            for (const pattern of importPatterns) {
+                let match;
+                while ((match = pattern.exec(content)) !== null) {
+                    const importPath = match[1];
+                    if (!importPath.startsWith('.') && !importPath.startsWith('/')) {
+                        // External dependency
+                        dependencies.push(importPath);
+                    } else {
+                        // Local import
+                        imports.push(importPath);
+                    }
+                }
+            }
+
+            // Find export statements
+            const exportPatterns = [
+                /export\s+(?:default\s+)?(?:async\s+)?(?:function|const|let|var|class)\s+(\w+)/g,
+                /export\s*\{\s*([^}]+)\s*\}/g
+            ];
+
+            for (const pattern of exportPatterns) {
+                let match;
+                while ((match = pattern.exec(content)) !== null) {
+                    exports.push(match[1]);
+                }
+            }
+
+            return { imports, exports, dependencies };
+        }
+
+        async function parseTestFilesWithContext(projectStructure, relationships) {
+            const results = {
+                testCases: [],
+                stats: {
+                    totalFiles: projectStructure.testFiles.length,
+                    totalTests: 0,
+                    filesWithTests: 0,
+                    parsingErrors: 0,
+                    relationships: 0
+                }
+            };
+
+            // Process test files with context from related files
+            for (const testFileInfo of projectStructure.testFiles) {
+                try {
+                    const content = await readFileAsync(testFileInfo.file);
+                    
+                    // Find related files (imports, dependencies)
+                    const relatedFiles = findRelatedFiles(testFileInfo.filePath, relationships, projectStructure);
+                    
+                    // Parse test with context
+                    const parsedTests = parseFileContentWithContext(content, testFileInfo.filePath, relatedFiles);
+                    
+                    if (parsedTests.length > 0) {
+                        results.testCases.push(...parsedTests);
+                        results.stats.filesWithTests++;
+                        results.stats.relationships += relatedFiles.length;
+                    }
+                    results.stats.totalTests += parsedTests.length;
+                } catch (error) {
+                    console.warn(`Error parsing ${testFileInfo.filePath}:`, error);
+                    results.stats.parsingErrors++;
+                }
+            }
+
+            return results;
+        }
+
+        function findRelatedFiles(testFilePath, relationships, projectStructure) {
+            const relatedFiles = [];
+            const testFileImports = relationships.imports.get(testFilePath) || [];
+
+            // Find API files that are imported
+            for (const apiFile of projectStructure.apiFiles) {
+                if (testFileImports.some(imp => apiFile.filePath.includes(imp.replace(/\.\.\//g, '')))) {
+                    relatedFiles.push({ type: 'api', file: apiFile });
+                }
+            }
+
+            // Find flow files that are imported
+            for (const flowFile of projectStructure.flowFiles) {
+                if (testFileImports.some(imp => flowFile.filePath.includes(imp.replace(/\.\.\//g, '')))) {
+                    relatedFiles.push({ type: 'flow', file: flowFile });
+                }
+            }
+
+            // Find utility files that are imported
+            for (const utilFile of projectStructure.utilityFiles) {
+                if (testFileImports.some(imp => utilFile.filePath.includes(imp.replace(/\.\.\//g, '')))) {
+                    relatedFiles.push({ type: 'utility', file: utilFile });
+                }
+            }
+
+            return relatedFiles;
+        }
+
+        function parseFileContentWithContext(content, filePath, relatedFiles) {
+            const testCases = [];
+
+            // Enhanced regex for Playwright test patterns with context
+            const testPatterns = [
+                // test('title', async () => {...})
+                /test\s*\(\s*['"]([^'"]+)['"]\s*,\s*async\s*\([^)]*\)\s*=>\s*\{([\s\S]*?)\}\s*\)/g,
+                // it('title', async () => {...})
+                /it\s*\(\s*['"]([^'"]+)['"]\s*,\s*async\s*\([^)]*\)\s*=>\s*\{([\s\S]*?)\}\s*\)/g,
+                // test.describe('suite', () => { test('title', ...) })
+                /test\.describe\s*\(\s*['"]([^'"]+)['"]\s*,[\s\S]*?test\s*\(\s*['"]([^'"]+)['"]\s*,\s*async\s*\([^)]*\)\s*=>\s*\{([\s\S]*?)\}\s*\)/g
+            ];
+
+            for (const pattern of testPatterns) {
+                let match;
+                while ((match = pattern.exec(content)) !== null) {
+                    const title = match[1] || match[2];
+                    const body = match[2] || match[3];
+
+                    const steps = parseTestStepsWithContext(body, relatedFiles);
+                    if (steps.length > 0) {
+                        testCases.push({
+                            title: `${title} (${filePath})`,
+                            filePath,
+                            steps,
+                            relatedFiles: relatedFiles.map(rf => rf.file.filePath),
+                            context: buildTestContext(relatedFiles)
+                        });
+                    }
+                }
+            }
+
+            return testCases;
+        }
+
+        function buildTestContext(relatedFiles) {
+            const context = {
+                apis: [],
+                flows: [],
+                utilities: []
+            };
+
+            for (const relatedFile of relatedFiles) {
+                if (relatedFile.type === 'api') {
+                    context.apis.push(relatedFile.file.filePath);
+                } else if (relatedFile.type === 'flow') {
+                    context.flows.push(relatedFile.file.filePath);
+                } else if (relatedFile.type === 'utility') {
+                    context.utilities.push(relatedFile.file.filePath);
+                }
+            }
+
+            return context;
+        }
+
+        function parseTestStepsWithContext(body, relatedFiles) {
+            const steps = [];
+            let stepCounter = 1;
+
+            // Look for // Step X: comments first (priority)
+            const stepCommentPattern = /\/\/\s*Step\s*\d+[:\s]*([^\n]*)/gi;
+            const stepChunks = body.split(stepCommentPattern).filter(chunk => chunk.trim());
+
+            if (stepChunks.length > 1) {
+                // Parse step-based comments (preferred method)
+                for (let i = 1; i < stepChunks.length; i += 2) {
+                    const stepDescription = stepChunks[i - 1].trim();
+                    const stepCode = stepChunks[i].trim();
+
+                    const actionCode = extractActions(stepCode);
+                    const expectedResults = extractExpectations(stepCode);
+
+                    steps.push({
+                        id: stepCounter++,
+                        action: stepDescription || actionCode || 'Execute step',
+                        expectedResult: expectedResults.join('\n') || 'Step completes successfully.'
+                    });
+                }
+            } else {
+                // Enhanced parsing with context from related files
+                const apiCalls = extractApiCalls(body);
+                const uiInteractions = extractUiInteractions(body);
+                const assertions = extractAssertions(body);
+                const flowCalls = extractFlowCalls(body, relatedFiles);
+                const dbCalls = extractDatabaseCalls(body);
+
+                // Combine all found actions
+                const allActions = [...apiCalls, ...uiInteractions, ...flowCalls, ...dbCalls];
+                
+                if (allActions.length > 0) {
+                    for (const action of allActions.slice(0, 20)) {
+                        const expectation = findMatchingAssertion(action, assertions);
+                        
+                        steps.push({
+                            id: stepCounter++,
+                            action: action,
+                            expectedResult: expectation || 'Action completes successfully.'
+                        });
+                    }
+                } else {
+                    // Fallback: parse based on await statements
+                    const awaitStatements = body.match(/await\s+[^;]+;/g) || [];
+                    if (awaitStatements.length > 0) {
+                        for (const statement of awaitStatements.slice(0, 10)) {
+                            const action = statement.trim();
+                            const expectation = extractExpectationFromAction(action);
+                            steps.push({
+                                id: stepCounter++,
+                                action: action,
+                                expectedResult: expectation || 'Action completes successfully.'
+                            });
+                        }
+                    }
+                }
+            }
+
+            return steps;
+        }
+
+        function extractDatabaseCalls(body) {
+            const dbCalls = [];
+            
+            // Look for database operations
+            const dbPatterns = [
+                /query\s*\(\s*['"`]([^'"`]+)['"`]/gi,
+                /SELECT\s+[^;]+/gi,
+                /INSERT\s+INTO\s+[^;]+/gi,
+                /UPDATE\s+[^;]+/gi,
+                /DELETE\s+FROM\s+[^;]+/gi
+            ];
+
+            for (const pattern of dbPatterns) {
+                let match;
+                while ((match = pattern.exec(body)) !== null) {
+                    dbCalls.push(`Database Query: ${match[0]}`);
+                }
+            }
+
+            return dbCalls;
+        }
+
+        function extractFlowCalls(body, relatedFiles) {
+            const flowCalls = [];
+            
+            // Look for calls to flow functions
+            for (const relatedFile of relatedFiles) {
+                if (relatedFile.type === 'flow') {
+                    const flowFileName = relatedFile.file.filePath.split('/').pop().replace(/\.(ts|js)$/, '');
+                    
+                    // Look for function calls that might be from this flow
+                    const flowPattern = new RegExp(`\\b${flowFileName}\\.[\\w]+\\s*\\(`, 'gi');
+                    const matches = body.match(flowPattern);
+                    
+                    if (matches) {
+                        for (const match of matches) {
+                            flowCalls.push(`Flow Call: ${match} (from ${flowFileName})`);
+                        }
+                    }
+                }
+            }
+
+            return flowCalls;
+        }
+
+        function getActionContext(action, relatedFiles) {
+            const context = [];
+            
+            for (const relatedFile of relatedFiles) {
+                if (relatedFile.type === 'api' && action.includes('API')) {
+                    context.push(`Uses API: ${relatedFile.file.filePath}`);
+                } else if (relatedFile.type === 'flow' && action.includes('Flow')) {
+                    context.push(`Uses Flow: ${relatedFile.file.filePath}`);
+                } else if (relatedFile.type === 'utility' && action.includes('Helper')) {
+                    context.push(`Uses Utility: ${relatedFile.file.filePath}`);
+                }
+            }
+
+            return context.length > 0 ? context.join(', ') : 'No related files';
+        }
+
+        function readFileAsync(file) {
+            return new Promise((resolve, reject) => {
+                const reader = new FileReader();
+                reader.onload = (e) => resolve(e.target.result);
+                reader.onerror = () => reject(new Error(`Failed to read ${file.name}`));
+                reader.readAsText(file);
+            });
+        }
+
+        async function parseTestFiles(files) {
+            const results = {
+                testCases: [],
+                stats: {
+                    totalFiles: files.length,
+                    totalTests: 0,
+                    filesWithTests: 0,
+                    parsingErrors: 0
+                }
+            };
+
+            for (const file of files) {
+                try {
+                    const parsedTests = parseFileContent(file.content, file.relativePath);
+                    if (parsedTests.length > 0) {
+                        results.testCases.push(...parsedTests);
+                        results.stats.filesWithTests++;
+                    }
+                    results.stats.totalTests += parsedTests.length;
+                } catch (error) {
+                    console.warn(`Error parsing ${file.relativePath}:`, error);
+                    results.stats.parsingErrors++;
+                }
+            }
+
+            return results;
+        }
+
+        function parseFileContent(content, filePath) {
+            const testCases = [];
+
+            // Enhanced regex for Playwright test patterns
+            const testPatterns = [
+                // test('title', async () => {...})
+                /test\s*\(\s*['"]([^'"]+)['"]\s*,\s*async\s*\([^)]*\)\s*=>\s*\{([\s\S]*?)\}\s*\)/g,
+                // it('title', async () => {...})
+                /it\s*\(\s*['"]([^'"]+)['"]\s*,\s*async\s*\([^)]*\)\s*=>\s*\{([\s\S]*?)\}\s*\)/g,
+                // test.describe('suite', () => { test('title', ...) })
+                /test\.describe\s*\(\s*['"]([^'"]+)['"]\s*,[\s\S]*?test\s*\(\s*['"]([^'"]+)['"]\s*,\s*async\s*\([^)]*\)\s*=>\s*\{([\s\S]*?)\}\s*\)/g
+            ];
+
+            for (const pattern of testPatterns) {
+                let match;
+                while ((match = pattern.exec(content)) !== null) {
+                    const title = match[1] || match[2];
+                    const body = match[2] || match[3];
+
+                    const steps = parseTestSteps(body);
+                    if (steps.length > 0) {
+                        testCases.push({
+                            title,
+                            filePath,
+                            steps
+                        });
+                    }
+                }
+            }
+
+            return testCases;
+        }
+
+        function parseTestSteps(body) {
+            const steps = [];
+            let stepCounter = 1;
+
+            // Look for // Step X: comments first
+            const stepCommentPattern = /\/\/\s*Step\s*\d+[:\s]*([^\n]*)/gi;
+            const stepChunks = body.split(stepCommentPattern).filter(chunk => chunk.trim());
+
+            if (stepChunks.length > 1) {
+                // Parse step-based comments
+                for (let i = 1; i < stepChunks.length; i += 2) {
+                    const stepDescription = stepChunks[i - 1].trim();
+                    const stepCode = stepChunks[i].trim();
+
+                    const actionCode = extractActions(stepCode);
+                    const expectedResults = extractExpectations(stepCode);
+
+                    steps.push({
+                        id: stepCounter++,
+                        action: formatStepAction(stepDescription, actionCode),
+                        expectedResult: expectedResults.join('\n') || 'Execution completes without error.'
+                    });
+                }
+            } else {
+                // Enhanced parsing for API calls and UI interactions
+                const apiCalls = extractApiCalls(body);
+                const uiInteractions = extractUiInteractions(body);
+                const assertions = extractAssertions(body);
+
+                // Combine all found actions
+                const allActions = [...apiCalls, ...uiInteractions];
+                
+                if (allActions.length > 0) {
+                    for (const action of allActions.slice(0, 15)) { // Limit to 15 steps
+                        const expectation = findMatchingAssertion(action, assertions);
+                        steps.push({
+                            id: stepCounter++,
+                            action: action,
+                            expectedResult: expectation || 'Action completes successfully.'
+                        });
+                    }
+                } else {
+                    // Fallback: parse based on await statements
+                    const awaitStatements = body.match(/await\s+[^;]+;/g) || [];
+                    if (awaitStatements.length > 0) {
+                        for (const statement of awaitStatements.slice(0, 10)) {
+                            const action = statement.trim();
+                            const expectation = extractExpectationFromAction(action);
+                            steps.push({
+                                id: stepCounter++,
+                                action: `Execute: ${action}`,
+                                expectedResult: expectation || 'Action completes successfully.'
+                            });
+                        }
+                    }
+                }
+            }
+
+            return steps;
+        }
+
+        function formatStepAction(description, code) {
+            if (description && code) {
+                return `${description}\n\nCode:\n${code}`;
+            } else if (description) {
+                return description;
+            } else if (code) {
+                return code;
+            }
+            return 'Execute test step';
+        }
+
+        function extractApiCalls(body) {
+            const apiCalls = [];
+            
+            // Look for API calls with URLs
+            const apiPattern = /(?:await\s+)?(?:page\.|context\.)?request\.(get|post|put|delete|patch)\s*\(\s*['"`]([^'"`]+)['"`]/gi;
+            let match;
+            
+            while ((match = apiPattern.exec(body)) !== null) {
+                const method = match[1].toUpperCase();
+                const url = match[2];
+                apiCalls.push(`${method} API Call: ${url}`);
+            }
+
+            // Look for fetch calls
+            const fetchPattern = /fetch\s*\(\s*['"`]([^'"`]+)['"`]/gi;
+            while ((match = fetchPattern.exec(body)) !== null) {
+                const url = match[1];
+                apiCalls.push(`Fetch API Call: ${url}`);
+            }
+
+            return apiCalls;
+        }
+
+        function extractUiInteractions(body) {
+            const uiInteractions = [];
+            
+            // Look for page interactions
+            const clickPattern = /page\.click\s*\(\s*['"`]([^'"`]+)['"`]/gi;
+            let match;
+            
+            while ((match = clickPattern.exec(body)) !== null) {
+                const selector = match[1];
+                uiInteractions.push(`Click element: ${selector}`);
+            }
+
+            const fillPattern = /page\.fill\s*\(\s*['"`]([^'"`]+)['"`]/gi;
+            while ((match = fillPattern.exec(body)) !== null) {
+                const selector = match[1];
+                uiInteractions.push(`Fill input: ${selector}`);
+            }
+
+            const gotoPattern = /page\.goto\s*\(\s*['"`]([^'"`]+)['"`]/gi;
+            while ((match = gotoPattern.exec(body)) !== null) {
+                const url = match[1];
+                uiInteractions.push(`Navigate to: ${url}`);
+            }
+
+            return uiInteractions;
+        }
+
+        function extractAssertions(body) {
+            const assertions = [];
+            
+            // Look for expect statements
+            const expectPattern = /expect\s*\([^)]+\)\s*\.([^(]+)\s*\([^)]*\)/gi;
+            let match;
+            
+            while ((match = expectPattern.exec(body)) !== null) {
+                const assertion = match[0];
+                assertions.push(assertion);
+            }
+
+            return assertions;
+        }
+
+        function findMatchingAssertion(action, assertions) {
+            // Try to find a related assertion for the action
+            if (assertions.length > 0) {
+                return assertions.join('\n');
+            }
+            return null;
+        }
+
+        function extractActions(code) {
+            return (code.match(/await\s+(?!expect)[^;]+;/g) || [])
+                .map(line => line.trim())
+                .join('\n');
+        }
+
+        function extractExpectations(code) {
+            return (code.match(/await\s+expect\s*\([^)]+\)\s*\.[^(]+\([^)]*\);/g) || [])
+                .map(parseExpectation)
+                .filter(exp => exp);
+        }
+
+        function extractExpectationFromAction(action) {
+            const expectPattern = /await\s+expect\s*\([^)]+\)\s*\.(\w+)\s*\(([^)]*)\)/;
+            const match = action.match(expectPattern);
+            if (match) {
+                return parseExpectation(action);
+            }
+            return null;
+        }
+
+        function parseExpectation(line) {
+            line = line.trim();
+
+            // toHaveText
+            if (line.includes('toHaveText')) {
+                const match = line.match(/toHaveText\(['"]([^'"]*)['"]\)/);
+                return match ? `Text content should be: "${match[1]}"` : 'Text content should match expectation.';
+            }
+
+            // toBeVisible, toBeHidden
+            if (line.includes('toBeVisible')) return 'Element should be visible.';
+            if (line.includes('toBeHidden')) return 'Element should be hidden.';
+
+            // toContainText
+            if (line.includes('toContainText')) {
+                const match = line.match(/toContainText\(['"]([^'"]*)['"]\)/);
+                return match ? `Element should contain text: "${match[1]}"` : 'Element should contain expected text.';
+            }
+
+            // toHaveURL
+            if (line.includes('toHaveURL')) {
+                const match = line.match(/toHaveURL\(['"]([^'"]*)['"]\)/);
+                return match ? `Page URL should be: "${match[1]}"` : 'Page should be at expected URL.';
+            }
+
+            // toHaveValue, toHaveAttribute
+            if (line.includes('toHaveValue')) {
+                const match = line.match(/toHaveValue\(['"]([^'"]*)['"]\)/);
+                return match ? `Input should have value: "${match[1]}"` : 'Input should have expected value.';
+            }
+
+            return 'Assertion should pass.';
+        }
+
+        function displayResults(parseResults) {
+            results.classList.remove('hidden');
+            const { stats, testCases } = parseResults;
+
+            resultsContent.innerHTML = `
+                <div class="grid grid-cols-2 md:grid-cols-5 gap-4 mb-6">
+                    <div class="bg-blue-50 p-4 rounded-lg">
+                        <div class="text-2xl font-bold text-blue-600">${stats.totalFiles}</div>
+                        <div class="text-sm text-blue-600">Test Files</div>
+                    </div>
+                    <div class="bg-green-50 p-4 rounded-lg">
+                        <div class="text-2xl font-bold text-green-600">${stats.totalTests}</div>
+                        <div class="text-sm text-green-600">Tests Found</div>
+                    </div>
+                    <div class="bg-purple-50 p-4 rounded-lg">
+                        <div class="text-2xl font-bold text-purple-600">${stats.filesWithTests}</div>
+                        <div class="text-sm text-purple-600">Files with Tests</div>
+                    </div>
+                    <div class="bg-yellow-50 p-4 rounded-lg">
+                        <div class="text-2xl font-bold text-yellow-600">${stats.relationships || 0}</div>
+                        <div class="text-sm text-yellow-600">Relationships</div>
+                    </div>
+                    <div class="bg-orange-50 p-4 rounded-lg">
+                        <div class="text-2xl font-bold text-orange-600">${stats.parsingErrors}</div>
+                        <div class="text-sm text-orange-600">Parse Errors</div>
+                    </div>
+                </div>
+                <div class="border-t pt-4">
+                    <h4 class="font-semibold mb-2">Generated ${testCases.length} Test Cases with Context:</h4>
+                    <div class="max-h-60 overflow-y-auto space-y-2">
+                        ${testCases.slice(0, 10).map(tc => `
+                            <div class="bg-slate-50 p-3 rounded">
+                                <div class="font-medium text-slate-800">${tc.title}</div>
+                                <div class="text-sm text-slate-600">${tc.steps.length} steps</div>
+                                ${tc.relatedFiles && tc.relatedFiles.length > 0 ? `
+                                    <div class="text-xs text-blue-600 mt-1">
+                                        Related: ${tc.relatedFiles.slice(0, 2).join(', ')}${tc.relatedFiles.length > 2 ? '...' : ''}
+                                    </div>
+                                ` : ''}
+                            </div>
+                        `).join('')}
+                        ${testCases.length > 10 ? `<div class="text-sm text-slate-500">... and ${testCases.length - 10} more</div>` : ''}
+                    </div>
+                </div>
+            `;
+        }
+
+        function downloadCSV() {
+            if (!currentParseResults || currentParseResults.testCases.length === 0) {
+                updateStatus('No test cases available to export.', 'error');
+                return;
+            }
+
+            try {
+                const csvContent = convertToCsv(currentParseResults.testCases);
+                const blob = new Blob([csvContent], { type: 'text/csv;charset=utf-8;' });
+                const link = document.createElement('a');
+                const url = URL.createObjectURL(blob);
+                
+                link.setAttribute('href', url);
+                link.setAttribute('download', `azure-test-cases-${Date.now()}.csv`);
+                link.style.visibility = 'hidden';
+                
+                document.body.appendChild(link);
+                link.click();
+                document.body.removeChild(link);
+                
+                updateStatus('CSV file downloaded successfully!', 'success');
+            } catch (error) {
+                updateStatus(`Export failed: ${error.message}`, 'error');
+            }
+        }
+
+        function convertToCsv(testCases) {
+            const defaultAreaPath = 'Prometric\\Shared Services\\Automation\\Hydra';
+            const defaultAssignedTo = '';
+            const defaultState = 'Design';
+
+            const header = [
+                'ID', 'Work Item Type', 'Title', 'Test Step', 'Step Action', 'Step Expected', 'Area Path', 'Assigned To', 'State'
+            ];
+            const rows = [header.join(',')];
+
+            // Helper to escape CSV content (leave truly blank cells empty)
+            const escapeCsv = (str) => {
+                if (str === null || str === undefined || str === '') {
+                    return '';
+                }
+                const normalized = String(str);
+                const needsQuotes = /[",\n]/.test(normalized);
+                const escaped = normalized.replace(/"/g, '""');
+                return needsQuotes ? `"${escaped}"` : escaped;
+            };
+
+            // Helper to clean content for HTML format
+            const cleanForHtml = (str) => {
+                if (!str) return '';
+                return str
+                    .replace(/\n\nContext:.*$/g, '') // Remove context lines
+                    .replace(/Context: [^,\n]*,?\s*/g, '') // Remove inline context
+                    .replace(/&/g, '&amp;')
+                    .replace(/</g, '&lt;')
+                    .replace(/>/g, '&gt;')
+                    .replace(/"/g, '&quot;')
+                    .replace(/'/g, '&#39;')
+                    .replace(/\n/g, '<br/>')
+                    .replace(/\r/g, '')
+                    .replace(/\s+/g, ' ')
+                    .trim();
+            };
+
+            for (const testCase of testCases) {
+                if (!testCase.steps || testCase.steps.length === 0) continue;
+
+                // Add the test case header row (no step data)
+                const testCaseHeaderRow = [
+                    '',
+                    'Test Case',
+                    escapeCsv(testCase.title),
+                    '',
+                    '',
+                    '',
+                    escapeCsv(defaultAreaPath),
+                    escapeCsv(defaultAssignedTo),
+                    escapeCsv(defaultState)
+                ];
+                rows.push(testCaseHeaderRow.join(','));
+
+                // Add each step as a separate row with blank metadata columns
+                for (let i = 0; i < testCase.steps.length; i++) {
+                    const step = testCase.steps[i];
+                    const stepRow = [
+                        '',
+                        '',
+                        '',
+                        (i + 1).toString(),
+                        escapeCsv(cleanForHtml(step.action)),
+                        escapeCsv(cleanForHtml(step.expectedResult)),
+                        '',
+                        '',
+                        ''
+                    ];
+                    rows.push(stepRow.join(','));
+                }
+            }
+            return rows.join('\n');
+        }
+
+        function updateProgress(percent) {
+            progressBar.style.width = percent + '%';
+            progressText.textContent = percent + '%';
+        }
+
+        function showProgress() {
+            progressContainer.classList.remove('hidden');
+            progressContainer.classList.add('fade-in');
+        }
+
+        function hideProgress() {
+            setTimeout(() => progressContainer.classList.add('hidden'), 500);
+        }
+
+        function updateStatus(message, type = 'info') {
+            statusDiv.innerHTML = `<p class="fade-in ${getStatusClass(type)}">${message}</p>`;
+        }
+
+        function getStatusClass(type) {
+            const classes = {
+                'success': 'text-green-600 font-medium',
+                'error': 'text-red-600 font-medium',
+                'warning': 'text-yellow-600 font-medium',
+                'info': 'text-blue-600'
+            };
+            return classes[type] || classes.info;
+        }
+    </script>
+</body>
+</html>

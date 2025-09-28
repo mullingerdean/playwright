@@ -1,0 +1,18 @@
+{
+  "name": "playwright-to-azure-csv",
+  "version": "1.0.0",
+  "description": "An Electron app to convert Playwright test files into Azure DevOps CSV test cases.",
+  "main": "main.js",
+  "scripts": {
+    "start": "electron .",
+    "start:service": "node backend/server.js"
+  },
+  "devDependencies": {
+    "electron": "22.3.27"
+  },
+  "dependencies": {
+    "cors": "^2.8.5",
+    "express": "^4.19.2",
+    "keytar": "^7.9.0"
+  }
+}
